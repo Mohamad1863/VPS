@@ -5,8 +5,8 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
-    timeout-minutes: 1036800
+    runs-on: self-hosted
+    timeout-minutes: 4200
 
     steps:
       - name: 1. Enable Remote Desktop & Firewall
@@ -50,7 +50,7 @@ jobs:
 
       - name: 4. Keep Server Alive (48 Hours)
         run: |
-          for ($i = 1; $i -le 1036800; $i++) {
+          for ($i = 1; $i -le 4200; $i++) {
             Start-Sleep -Seconds 60
             Write-Host "[$i/1036800] Server running..."
           }
