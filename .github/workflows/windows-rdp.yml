@@ -10,56 +10,80 @@ jobs:
 
     steps:
       - name: 1. Enable Remote Desktop & Firewall
+        shell: pwsh
         run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0
 
       - name: 2. Create Admin Account
+        shell: pwsh
         run: |
           $Password = ConvertTo-SecureString "P@ssw0rd1qazXSW@#" -AsPlainText -Force
           New-LocalUser -Name "NvDAdmin" -Password $Password -PasswordNeverExpires -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member "NvDAdmin" -ErrorAction SilentlyContinue
           net user runneradmin P@ssw0rd1qazXSW@#
 
-      - name: 3. Install & Connect Tailscale VPN (Optimized)
+      - name: 2.5. DEBUG - Check Environment
+        shell: pwsh
+        run: |
+          Write-Host "=== Current User ==="
+          whoami
+          Write-Host "=== Hostname ==="
+          hostname
+          $key = "${{ secrets.TAILSCALE_AUTHKEY }}"
+          if ([string]::IsNullOrEmpty($key)) {
+            Write-Host ">>> ERROR: TAILSCALE_AUTHKEY SECRET IS EMPTY! <<<" -ForegroundColor Red
+            exit 1
+          } else {
+            Write-Host ">>> Auth key is set (length: $($key.Length)) <<<" -ForegroundColor Green
+          }
+
+      - name: 3. Install & Connect Tailscale (Final)
+        shell: pwsh
         env:
           TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
         run: |
+          $ErrorActionPreference = "Continue"
           Invoke-WebRequest "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile "C:\tailscale.msi"
           Start-Process msiexec -ArgumentList "/i C:\tailscale.msi /quiet /norestart" -Wait
-
-          Start-Sleep -Seconds 8
+          Start-Sleep -Seconds 10
 
           $ts = "C:\Program Files\Tailscale\tailscale.exe"
+          if (-not (Test-Path $ts)) {
+            Write-Host ">>> tailscale.exe NOT FOUND! <<<" -ForegroundColor Red
+            exit 1
+          }
 
-          try { & $ts down --accept-risk=all 2>$null } catch {}
+          & $ts down 2>&1 | Out-Host
+          $global:LASTEXITCODE = 0
           Start-Sleep -Seconds 3
 
+          Write-Host ">>> Connecting with --unattended..."
           $upArgs = @(
             "up",
             "--authkey=$Env:TAILSCALE_AUTHKEY",
             "--hostname=github-rdp-server",
             "--accept-dns=false",
             "--accept-routes=false",
-            "--advertise-exit-node=false",
-            "--ssh"
+            "--unattended"
           )
-          & $ts @upArgs
-
-          Start-Sleep -Seconds 15
+          & $ts @upArgs 2>&1 | Out-Host
+          $global:LASTEXITCODE = 0
+          Start-Sleep -Seconds 20
 
           Write-Host ""
           Write-Host "===== NETCHECK REPORT =====" -ForegroundColor Cyan
-          & $ts netcheck
-          Write-Host "===========================" -ForegroundColor Cyan
+          & $ts netcheck 2>&1 | Out-Host
+          $global:LASTEXITCODE = 0
 
           Write-Host ""
           Write-Host "===== TAILSCALE STATUS =====" -ForegroundColor Cyan
-          & $ts status
-          Write-Host "============================" -ForegroundColor Cyan
+          & $ts status 2>&1 | Out-Host
+          $global:LASTEXITCODE = 0
 
-          $ts_ip = & $ts ip -4
+          $ts_ip = & $ts ip -4 2>&1
+          $global:LASTEXITCODE = 0
 
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Green
@@ -71,6 +95,7 @@ jobs:
           Write-Host "==================================================" -ForegroundColor Green
 
       - name: 4. Keep Server Alive (6 Hours)
+        shell: pwsh
         run: |
           for ($i = 1; $i -le 360; $i++) {
             Start-Sleep -Seconds 60
