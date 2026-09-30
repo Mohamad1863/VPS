@@ -10,19 +10,22 @@
     
     $ts = "C:\Program Files\Tailscale\tailscale.exe"
     
-    # Reset any leftover state from previous runs
-    & $ts down --accept-risk=all 2>$null
+    # Reset any leftover state (ignore errors if not connected)
+    try { & $ts down --accept-risk=all 2>$null } catch {}
     Start-Sleep -Seconds 3
     
-    # Connect with performance optimizations
-    & $ts up `
-      --authkey="$Env:TAILSCALE_AUTHKEY" `
-      --hostname="github-rdp-server" `
-      --accept-dns=false `
-      --accept-routes=false `
-      --advertise-exit-node=false `
-      --ssh `
-      --reset
+    # Connect with performance optimizations (using array - no backticks!)
+    $upArgs = @(
+      "up",
+      "--authkey=$Env:TAILSCALE_AUTHKEY",
+      "--hostname=github-rdp-server",
+      "--accept-dns=false",
+      "--accept-routes=false",
+      "--advertise-exit-node=false",
+      "--ssh",
+      "--reset"
+    )
+    & $ts @upArgs
     
     Start-Sleep -Seconds 15
     
