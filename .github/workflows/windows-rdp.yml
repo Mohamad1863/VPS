@@ -10,103 +10,48 @@ jobs:
 
     steps:
       - name: 1. Enable Remote Desktop & Firewall
-        shell: pwsh
         run: |
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0
 
       - name: 2. Create Admin Account
-        shell: pwsh
         run: |
           $Password = ConvertTo-SecureString "P@ssw0rd1qazXSW@#" -AsPlainText -Force
           New-LocalUser -Name "NvDAdmin" -Password $Password -PasswordNeverExpires -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Administrators" -Member "NvDAdmin" -ErrorAction SilentlyContinue
           net user runneradmin P@ssw0rd1qazXSW@#
 
-      - name: 3. Install Tailscale
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Continue"
-          Write-Host ">>> Downloading Tailscale..."
-          Invoke-WebRequest "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile "C:\tailscale.msi"
-
-          Write-Host ">>> Installing Tailscale..."
-          Start-Process msiexec -ArgumentList "/i C:\tailscale.msi /quiet /norestart" -Wait
-          Start-Sleep -Seconds 12
-
-          if (-not (Test-Path "C:\Program Files\Tailscale\tailscale.exe")) {
-            Write-Host ">>> ERROR: tailscale.exe not found!" -ForegroundColor Red
-            exit 1
-          }
-          Write-Host ">>> Tailscale installed successfully." -ForegroundColor Green
-
-      - name: 3.2. Force Tailscale to use TCP/DERP (Block UDP via Firewall)
-        shell: pwsh
-        run: |
-          Write-Host ">>> Blocking outbound UDP 41641, 3478, 51820 to force TCP fallback..."
-
-          New-NetFirewallRule -DisplayName "Block Tailscale UDP 41641" -Direction Outbound -Protocol UDP -RemotePort 41641 -Action Block -ErrorAction SilentlyContinue
-          New-NetFirewallRule -DisplayName "Block STUN UDP 3478" -Direction Outbound -Protocol UDP -RemotePort 3478 -Action Block -ErrorAction SilentlyContinue
-          New-NetFirewallRule -DisplayName "Block WireGuard UDP 51820" -Direction Outbound -Protocol UDP -RemotePort 51820 -Action Block -ErrorAction SilentlyContinue
-
-          Write-Host ">>> UDP blocked. Tailscale will fall back to DERP over TCP 443." -ForegroundColor Green
-
-      - name: 3.5. Connect to Tailscale VPN (Optimized)
-        shell: pwsh
+      - name: 3. Install & Connect Tailscale VPN
         env:
           TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
         run: |
-          $ErrorActionPreference = "Continue"
-          $ts = "C:\Program Files\Tailscale\tailscale.exe"
-
-          & $ts down 2>&1 | Out-Host
-          $global:LASTEXITCODE = 0
-          Start-Sleep -Seconds 3
-
-          Write-Host ">>> Connecting to Tailscale network..."
-          $upArgs = @(
-            "up",
-            "--authkey=$Env:TAILSCALE_AUTHKEY",
-            "--hostname=github-rdp-server",
-            "--accept-dns=false",
-            "--accept-routes=false",
-            "--advertise-exit-node=false",
-            "--unattended"
-          )
-          & $ts @upArgs 2>&1 | Out-Host
-          $global:LASTEXITCODE = 0
-
-          Start-Sleep -Seconds 25
-
-          Write-Host ""
-          Write-Host "===== NETCHECK REPORT =====" -ForegroundColor Cyan
-          & $ts netcheck 2>&1 | Out-Host
-          $global:LASTEXITCODE = 0
-          Write-Host "===========================" -ForegroundColor Cyan
-
-          Write-Host ""
-          Write-Host "===== TAILSCALE STATUS =====" -ForegroundColor Cyan
-          & $ts status 2>&1 | Out-Host
-          $global:LASTEXITCODE = 0
-          Write-Host "============================" -ForegroundColor Cyan
-
-          $ts_ip = & $ts ip -4 2>&1
-          $global:LASTEXITCODE = 0
-
+          # Download and install Tailscale silently
+          Invoke-WebRequest "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile "C:\tailscale.msi"
+          Start-Process msiexec -ArgumentList "/i C:\tailscale.msi /quiet /norestart" -Wait
+          
+          # Connect to Tailscale network
+          Start-Sleep -Seconds 5
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$Env:TAILSCALE_AUTHKEY" --hostname="github-rdp-server"
+          
+          Start-Sleep -Seconds 8
+          
+          # Get Tailscale IP
+          $ts_ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Green
           Write-Host "  >>> RDP SERVER IS READY! <<<" -ForegroundColor Cyan
           Write-Host "  Tailscale IP : $ts_ip" -ForegroundColor Yellow
-          Write-Host "  Username     : runneradmin" -ForegroundColor Yellow
+          Write-Host "  Username     : NvdAdmin" -ForegroundColor Yellow
           Write-Host "  Password     : P@ssw0rd1qazXSW@#" -ForegroundColor Yellow
           Write-Host "  >> Open mstsc and connect to: $ts_ip" -ForegroundColor Magenta
           Write-Host "==================================================" -ForegroundColor Green
 
-      - name: 4. Keep Server Alive (6 Hours)
-        shell: pwsh
+      - name: 4. Keep Server Alive (48 Hours)
         run: |
-          for ($i = 1; $i -le 355; $i++) {
+          for ($i = 1; $i -le 2880; $i++) {
             Start-Sleep -Seconds 60
-            Write-Host "[$i/355] Server running..."
+            Write-Host "[$i/2880] Server running..."
           }
+          
