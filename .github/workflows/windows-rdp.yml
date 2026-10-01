@@ -41,19 +41,16 @@ jobs:
           }
           Write-Host ">>> Tailscale installed successfully." -ForegroundColor Green
 
-      - name: 3.2. Force Tailscale to use DERP (TCP 443 - bypass ISP UDP block)
+      - name: 3.2. Force Tailscale to use TCP/DERP (Block UDP via Firewall)
         shell: pwsh
         run: |
-          Write-Host ">>> Setting machine-level env vars to force TCP/DERP..."
+          Write-Host ">>> Blocking outbound UDP 41641, 3478, 51820 to force TCP fallback..."
 
-          [System.Environment]::SetEnvironmentVariable("TS_DEBUG_ALWAYS_USE_DERP", "true", "Machine")
-          [System.Environment]::SetEnvironmentVariable("TS_DEBUG_USE_DERP_HTTPS", "true", "Machine")
+          New-NetFirewallRule -DisplayName "Block Tailscale UDP 41641" -Direction Outbound -Protocol UDP -RemotePort 41641 -Action Block -ErrorAction SilentlyContinue
+          New-NetFirewallRule -DisplayName "Block STUN UDP 3478" -Direction Outbound -Protocol UDP -RemotePort 3478 -Action Block -ErrorAction SilentlyContinue
+          New-NetFirewallRule -DisplayName "Block WireGuard UDP 51820" -Direction Outbound -Protocol UDP -RemotePort 51820 -Action Block -ErrorAction SilentlyContinue
 
-          Restart-Service Tailscale -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 8
-
-          Write-Host ">>> Tailscale now forced to use DERP over TCP 443." -ForegroundColor Green
-          Write-Host ">>> This bypasses ISP's UDP throttling." -ForegroundColor Green
+          Write-Host ">>> UDP blocked. Tailscale will fall back to DERP over TCP 443." -ForegroundColor Green
 
       - name: 3.5. Connect to Tailscale VPN (Optimized)
         shell: pwsh
@@ -80,7 +77,7 @@ jobs:
           & $ts @upArgs 2>&1 | Out-Host
           $global:LASTEXITCODE = 0
 
-          Start-Sleep -Seconds 20
+          Start-Sleep -Seconds 25
 
           Write-Host ""
           Write-Host "===== NETCHECK REPORT =====" -ForegroundColor Cyan
