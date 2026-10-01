@@ -30,11 +30,11 @@ jobs:
           $ErrorActionPreference = "Continue"
           Write-Host ">>> Downloading Tailscale..."
           Invoke-WebRequest "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile "C:\tailscale.msi"
-          
+
           Write-Host ">>> Installing Tailscale..."
           Start-Process msiexec -ArgumentList "/i C:\tailscale.msi /quiet /norestart" -Wait
           Start-Sleep -Seconds 12
-          
+
           if (-not (Test-Path "C:\Program Files\Tailscale\tailscale.exe")) {
             Write-Host ">>> ERROR: tailscale.exe not found!" -ForegroundColor Red
             exit 1
@@ -44,18 +44,14 @@ jobs:
       - name: 3.2. Force Tailscale to use DERP (TCP 443 - bypass ISP UDP block)
         shell: pwsh
         run: |
-          Write-Host ">>> Setting environment variables to force TCP/DERP..."
-          $reg = "HKLM:\SYSTEM\CurrentControlSet\Services\Tailscale"
-          
-          $envVars = @(
-            "TS_DEBUG_ALWAYS_USE_DERP=true",
-            "TS_DEBUG_USE_DERP_HTTPS=true"
-          )
-          
-          Set-ItemProperty -Path $reg -Name Environment -Value $envVars -PropertyType MultiString -Force
+          Write-Host ">>> Setting machine-level env vars to force TCP/DERP..."
+
+          [System.Environment]::SetEnvironmentVariable("TS_DEBUG_ALWAYS_USE_DERP", "true", "Machine")
+          [System.Environment]::SetEnvironmentVariable("TS_DEBUG_USE_DERP_HTTPS", "true", "Machine")
+
           Restart-Service Tailscale -Force -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 5
-          
+          Start-Sleep -Seconds 8
+
           Write-Host ">>> Tailscale now forced to use DERP over TCP 443." -ForegroundColor Green
           Write-Host ">>> This bypasses ISP's UDP throttling." -ForegroundColor Green
 
@@ -66,12 +62,11 @@ jobs:
         run: |
           $ErrorActionPreference = "Continue"
           $ts = "C:\Program Files\Tailscale\tailscale.exe"
-          
-          # Bring down any existing connection
+
           & $ts down 2>&1 | Out-Host
           $global:LASTEXITCODE = 0
           Start-Sleep -Seconds 3
-          
+
           Write-Host ">>> Connecting to Tailscale network..."
           $upArgs = @(
             "up",
@@ -84,24 +79,24 @@ jobs:
           )
           & $ts @upArgs 2>&1 | Out-Host
           $global:LASTEXITCODE = 0
-          
+
           Start-Sleep -Seconds 20
-          
+
           Write-Host ""
           Write-Host "===== NETCHECK REPORT =====" -ForegroundColor Cyan
           & $ts netcheck 2>&1 | Out-Host
           $global:LASTEXITCODE = 0
           Write-Host "===========================" -ForegroundColor Cyan
-          
+
           Write-Host ""
           Write-Host "===== TAILSCALE STATUS =====" -ForegroundColor Cyan
           & $ts status 2>&1 | Out-Host
           $global:LASTEXITCODE = 0
           Write-Host "============================" -ForegroundColor Cyan
-          
+
           $ts_ip = & $ts ip -4 2>&1
           $global:LASTEXITCODE = 0
-          
+
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Green
           Write-Host "  >>> RDP SERVER IS READY! <<<" -ForegroundColor Cyan
